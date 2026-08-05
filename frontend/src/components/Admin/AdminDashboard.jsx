@@ -4,8 +4,113 @@ import {
   Users, Building, FileText, Compass, Bell, Check, X, Plus, Trash2, 
   ShieldAlert, LayoutDashboard, Search, Settings, LogOut, Loader2, 
   Megaphone, Calendar, ClipboardList, Shield, ShieldAlert as AlertIcon, CreditCard, ChevronDown,
-  Clock, CheckCircle
+  Clock, CheckCircle, Eye, Edit, TrendingUp, Lock
 } from 'lucide-react';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAFF RBAC CONFIGURATION
+// ─────────────────────────────────────────────────────────────────────────────
+const SUB_ROLE_LABELS = {
+  junior_staff:    'Junior Staff',
+  senior_staff:    'Senior Staff',
+  staff_admin:     'Staff Admin',
+  junior_manager:  'Junior Manager',
+  senior_manager:  'Senior Manager',
+};
+
+// per page: { view, add, edit, delete, restricted }
+// 'canAddAdmin' false = cannot add admin-role users
+const STAFF_RBAC = {
+  // page key        junior_staff        senior_staff        staff_admin                    junior_manager               senior_manager
+  users:     {
+    junior_staff:   { view: true,  add: false, edit: false, delete: false, restricted: false, canAddAdmin: false, canApprove: false, canReject: false },
+    senior_staff:   { view: true,  add: false, edit: false, delete: false, restricted: false, canAddAdmin: false, canApprove: false, canReject: false },
+    staff_admin:    { view: true,  add: true,  edit: false, delete: false, restricted: false, canAddAdmin: false, canApprove: true,  canReject: false },
+    junior_manager: { view: true,  add: true,  edit: false, delete: false, restricted: false, canAddAdmin: false, canApprove: false, canReject: false },
+    senior_manager: { view: true,  add: true,  edit: true,  delete: false, restricted: false, canAddAdmin: false, canApprove: true,  canReject: true },
+  },
+  residents: {
+    junior_staff:   { view: true,  add: false, edit: false, delete: false, restricted: false },
+    senior_staff:   { view: true,  add: false, edit: false, delete: false, restricted: false },
+    staff_admin:    { view: true,  add: true,  edit: false, delete: false, restricted: false },
+    junior_manager: { view: true,  add: true,  edit: false, delete: false, restricted: false },
+    senior_manager: { view: true,  add: true,  edit: true,  delete: false, restricted: false },
+  },
+  units: {
+    junior_staff:   { view: false, add: false, edit: false, delete: false, restricted: true,  canAllocate: false },
+    senior_staff:   { view: true,  add: false, edit: false, delete: false, restricted: false, canAllocate: false },
+    staff_admin:    { view: true,  add: false, edit: false, delete: false, restricted: false, canAllocate: true },
+    junior_manager: { view: true,  add: false, edit: false, delete: false, restricted: false, canAllocate: false },
+    senior_manager: { view: true,  add: true,  edit: true,  delete: false, restricted: false, canAllocate: true },
+  },
+  complaints: {
+    junior_staff:   { view: false, add: false, edit: false, delete: false, restricted: true },
+    senior_staff:   { view: true,  add: false, edit: false, delete: false, restricted: false },
+    staff_admin:    { view: true,  add: false, edit: false, delete: false, restricted: false },
+    junior_manager: { view: true,  add: false, edit: false, delete: false, restricted: false },
+    senior_manager: { view: true,  add: false, edit: true,  delete: false, restricted: false },
+  },
+  facility: {
+    junior_staff:   { view: false, add: false, edit: false, delete: false, restricted: true,  canAllocateParking: false },
+    senior_staff:   { view: true,  add: false, edit: false, delete: false, restricted: false, canAllocateParking: false },
+    staff_admin:    { view: true,  add: true,  edit: false, delete: false, restricted: false, canAllocateParking: true },
+    junior_manager: { view: true,  add: false, edit: false, delete: false, restricted: false, canAllocateParking: false },
+    senior_manager: { view: true,  add: true,  edit: true,  delete: false, restricted: false, canAllocateParking: true },
+  },
+  events: {
+    junior_staff:   { view: true,  add: false, edit: false, delete: false, restricted: false },
+    senior_staff:   { view: true,  add: true,  edit: false, delete: false, restricted: false },
+    staff_admin:    { view: true,  add: true,  edit: false, delete: false, restricted: false },
+    junior_manager: { view: true,  add: true,  edit: false, delete: false, restricted: false },
+    senior_manager: { view: true,  add: true,  edit: true,  delete: false, restricted: false },
+  },
+  notices: {
+    junior_staff:   { view: true,  add: false, edit: false, delete: false, restricted: false },
+    senior_staff:   { view: true,  add: true,  edit: false, delete: false, restricted: false },
+    staff_admin:    { view: true,  add: true,  edit: true,  delete: false, restricted: false },
+    junior_manager: { view: true,  add: true,  edit: false, delete: false, restricted: false },
+    senior_manager: { view: true,  add: true,  edit: true,  delete: false, restricted: false },
+  },
+  bills: {
+    junior_staff:   { view: false, add: false, edit: false, delete: false, restricted: true },
+    senior_staff:   { view: false, add: false, edit: false, delete: false, restricted: true },
+    staff_admin:    { view: true,  add: false, edit: true,  delete: false, restricted: false },
+    junior_manager: { view: false, add: false, edit: false, delete: false, restricted: true },
+    senior_manager: { view: true,  add: true,  edit: true,  delete: false, restricted: false },
+  },
+};
+
+/**
+ * Returns RBAC permissions for the current user on a given page.
+ * For admin users, everything is allowed. For staff with no sub_role, view-only.
+ */
+const getRbac = (user, page) => {
+  const defaults = { view: false, add: false, edit: false, delete: false, restricted: true, canAddAdmin: false, canApprove: false, canReject: false, canAllocate: false, canAllocateParking: false };
+  if (!user) return defaults;
+  if (user.role === 'admin') return { view: true, add: true, edit: true, delete: true, restricted: false, canAddAdmin: true, canApprove: true, canReject: true, canAllocate: true, canAllocateParking: true };
+  if (user.role !== 'staff') return { view: true, add: true, edit: true, delete: true, restricted: false, canAddAdmin: false, canApprove: true, canReject: true, canAllocate: true, canAllocateParking: true };
+  const sub = user.sub_role;
+  if (!sub || !STAFF_RBAC[page]?.[sub]) return { ...defaults, view: true, restricted: false };
+  return { ...defaults, ...STAFF_RBAC[page][sub] };
+};
+
+
+/** Renders a full-page restriction banner for blocked pages */
+const PageRestrictedBanner = ({ pageName, user }) => (
+  <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
+    <div className="w-16 h-16 rounded-2xl bg-red-50 flex items-center justify-center mb-4">
+      <Lock className="w-8 h-8 text-red-400" />
+    </div>
+    <h2 className="text-lg font-black text-slate-800 mb-2">Access Restricted</h2>
+    <p className="text-sm text-slate-500 font-medium max-w-sm">
+      You don't have permission to view the <span className="font-bold text-slate-700">{pageName}</span> page.
+      Contact your system administrator to request access.
+    </p>
+    <div className="mt-4 px-4 py-2 bg-red-50 border border-red-200 rounded-xl">
+      <p className="text-xs font-bold text-red-600">Your role: {SUB_ROLE_LABELS[user?.sub_role] || user?.role}</p>
+    </div>
+  </div>
+);
 
 export default function AdminDashboard() {
   const { api, user, logout } = useAuth();
@@ -26,12 +131,27 @@ export default function AdminDashboard() {
     email: '',
     password: '',
     role: 'homeowner',
+    sub_role: '',
     status: 'approved',
     full_name: '',
     phone_number: '',
     building_name: '',
     unit_number: '',
     vehicle_number: ''
+  });
+  const [selectedUserView, setSelectedUserView] = useState(null);
+  const [selectedUserEdit, setSelectedUserEdit] = useState(null);
+  const [editUserForm, setEditUserForm] = useState({
+    id: '',
+    full_name: '',
+    email: '',
+    role: 'homeowner',
+    status: 'approved',
+    building_name: '',
+    unit_number: '',
+    phone_number: '',
+    vehicle_number: '',
+    nic_or_passport: ''
   });
 
   // Resident Management State
@@ -89,18 +209,20 @@ export default function AdminDashboard() {
   const [bills, setBills] = useState([]);
   const [billsTotal, setBillsTotal] = useState(0);
   const [billsPage, setBillsPage] = useState(1);
-  const [billMetrics, setBillMetrics] = useState({ totalInvoices: 1250, paymentsCollected: 45200, pendingAmount: 8400, pendingCount: 42, overdueAmount: 2150, overdueCount: 12 });
+  const [billMetrics, setBillMetrics] = useState({ totalInvoices: 0, paymentsCollected: 0, pendingAmount: 0, pendingCount: 0, overdueAmount: 0, overdueCount: 0 });
   const [billMonthlyData, setBillMonthlyData] = useState([]);
   const [overdueList, setOverdueList] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [billSearchQuery, setBillSearchQuery] = useState('');
   const [billStatusFilter, setBillStatusFilter] = useState('All');
   const [showGenerateInvoiceModal, setShowGenerateInvoiceModal] = useState(false);
+  const [unitSearchTerm, setUnitSearchTerm] = useState('');
+  const [unitDropdownOpen, setUnitDropdownOpen] = useState(false);
   const [showRecordPaymentModal, setShowRecordPaymentModal] = useState(false);
   const [recordPaymentForm, setRecordPaymentForm] = useState({ billId: '', payment_method: 'Bank Transfer', notes: '' });
   const [notices, setNotices] = useState([]);
-  const [noticeMetrics, setNoticeMetrics] = useState({ totalNotices: 1248, activeNotices: 42, scheduledNotices: 12, archivedNotices: 1194 });
-  const [noticeDistribution, setNoticeDistribution] = useState({ utility: 45, events: 30, security: 15, other: 10 });
+  const [noticeMetrics, setNoticeMetrics] = useState({ totalNotices: 0, activeNotices: 0, scheduledNotices: 0, archivedNotices: 0 });
+  const [noticeDistribution, setNoticeDistribution] = useState({ utility: 0, events: 0, security: 0, other: 0 });
   const [noticeActivities, setNoticeActivities] = useState([]);
   const [noticeSearchQuery, setNoticeSearchQuery] = useState('');
   const [noticeStatusFilter, setNoticeStatusFilter] = useState('All');
@@ -134,12 +256,71 @@ export default function AdminDashboard() {
 
   // Form Input States
   const [newUnit, setNewUnit] = useState({ block_name: '', floor_number: '', unit_number: '', type: '2BHK', status: 'vacant' });
-  const [allocation, setAllocation] = useState({ unitId: '', owner_id: '', tenant_id: '', parking_slot_id: '' });
+  const [allocation, setAllocation] = useState({ unitId: '', owner_id: '', tenant_id: '', parking_slot_id: '', ownerLabel: '', tenantLabel: '' });
   const [showAddUnitModal, setShowAddUnitModal] = useState(false);
   const [showAllocateModal, setShowAllocateModal] = useState(false);
   const [newBill, setNewBill] = useState({ unit_id: '', amount: '', description: '', due_date: '' });
   const [newNotice, setNewNotice] = useState({ title: '', content: '' });
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Allocate modal – user search state
+  const [ownerSearch, setOwnerSearch]       = useState('');
+  const [tenantSearch, setTenantSearch]     = useState('');
+  const [ownerResults, setOwnerResults]     = useState([]);
+  const [tenantResults, setTenantResults]   = useState([]);
+  const [showOwnerDrop, setShowOwnerDrop]   = useState(false);
+  const [showTenantDrop, setShowTenantDrop] = useState(false);
+  const [ownerLoading, setOwnerLoading]     = useState(false);
+  const [tenantLoading, setTenantLoading]   = useState(false);
+
+  // Debounced resident-user search for allocate modal
+  const searchResidentUsers = async (query, role, setResults, setLoading) => {
+    setLoading(true);
+    try {
+      const res = await api.get('/units/resident-users', { params: { search: query, role } });
+      setResults(res.data || []);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOwnerSearchChange = (val) => {
+    setOwnerSearch(val);
+    setShowOwnerDrop(true);
+    searchResidentUsers(val, 'homeowner', setOwnerResults, setOwnerLoading);
+  };
+
+  const handleTenantSearchChange = (val) => {
+    setTenantSearch(val);
+    setShowTenantDrop(true);
+    searchResidentUsers(val, 'tenant', setTenantResults, setTenantLoading);
+  };
+
+  const selectOwner = (user) => {
+    setAllocation(prev => ({ ...prev, owner_id: user.id, ownerLabel: `${user.full_name || user.email} (${user.email})` }));
+    setOwnerSearch(user.full_name || user.email);
+    setShowOwnerDrop(false);
+  };
+
+  const clearOwner = () => {
+    setAllocation(prev => ({ ...prev, owner_id: '', ownerLabel: '' }));
+    setOwnerSearch('');
+    setOwnerResults([]);
+  };
+
+  const selectTenant = (user) => {
+    setAllocation(prev => ({ ...prev, tenant_id: user.id, tenantLabel: `${user.full_name || user.email} (${user.email})` }));
+    setTenantSearch(user.full_name || user.email);
+    setShowTenantDrop(false);
+  };
+
+  const clearTenant = () => {
+    setAllocation(prev => ({ ...prev, tenant_id: '', tenantLabel: '' }));
+    setTenantSearch('');
+    setTenantResults([]);
+  };
 
   // Fetch Dashboard Statistics and tab data
   const fetchData = async () => {
@@ -238,8 +419,8 @@ export default function AdminDashboard() {
           }
         });
         setNotices(noticesRes.data.notices || []);
-        setNoticeMetrics(noticesRes.data.metrics || { totalNotices: 1248, activeNotices: 42, scheduledNotices: 12, archivedNotices: 1194 });
-        setNoticeDistribution(noticesRes.data.distribution || { utility: 45, events: 30, security: 15, other: 10 });
+        setNoticeMetrics(noticesRes.data.metrics || { totalNotices: 0, activeNotices: 0, scheduledNotices: 0, archivedNotices: 0 });
+        setNoticeDistribution(noticesRes.data.distribution || { utility: 0, events: 0, security: 0, other: 0 });
         setNoticeActivities(noticesRes.data.activities || []);
       } else if (activeTab === 'bills') {
         const billsRes = await api.get('/bills', {
@@ -278,6 +459,14 @@ export default function AdminDashboard() {
     noticeSearchQuery, noticeStatusFilter, noticeCategoryFilter, noticePriorityFilter,
     billSearchQuery, billStatusFilter, billsPage
   ]);
+
+  useEffect(() => {
+    if (showGenerateInvoiceModal && units.length === 0) {
+      api.get('/units')
+        .then((res) => setUnits(res.data.units || res.data || []))
+        .catch((err) => console.error('Failed to fetch units for invoice modal:', err));
+    }
+  }, [showGenerateInvoiceModal]);
 
   // Handle Approvals
   const handleApproval = async (userId, action) => {
@@ -327,6 +516,7 @@ export default function AdminDashboard() {
         email: '',
         password: '',
         role: 'homeowner',
+        sub_role: '',
         status: 'approved',
         full_name: '',
         phone_number: '',
@@ -338,6 +528,21 @@ export default function AdminDashboard() {
       setTimeout(() => setSuccessMsg(''), 4000);
     } catch (error) {
       setErrorMsg(error.response?.data?.message || 'Failed to create user');
+      setTimeout(() => setErrorMsg(''), 4000);
+    }
+  };
+
+  const handleAdminUpdateUser = async (e) => {
+    e.preventDefault();
+    if (!selectedUserEdit) return;
+    try {
+      await api.put(`/auth/users/${editUserForm.id}`, editUserForm);
+      setSuccessMsg("User details updated successfully!");
+      setSelectedUserEdit(null);
+      fetchData();
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (error) {
+      setErrorMsg(error.response?.data?.message || 'Failed to update user details');
       setTimeout(() => setErrorMsg(''), 4000);
     }
   };
@@ -407,7 +612,11 @@ export default function AdminDashboard() {
       });
       setSuccessMsg('Unit resource allocations saved!');
       setShowAllocateModal(false);
-      setAllocation({ unitId: '', owner_id: '', tenant_id: '', parking_slot_id: '' });
+      setAllocation({ unitId: '', owner_id: '', tenant_id: '', parking_slot_id: '', ownerLabel: '', tenantLabel: '' });
+      setOwnerSearch('');
+      setTenantSearch('');
+      setOwnerResults([]);
+      setTenantResults([]);
       fetchData();
       setTimeout(() => setSuccessMsg(''), 4000);
     } catch (error) {
@@ -424,8 +633,10 @@ export default function AdminDashboard() {
         ? newBill
         : newBill;
       await api.post('/bills', form);
-      setSuccessMsg('Invoice generated successfully!');
+      setSuccessMsg('Invoice generated successfully! Email notification sent.');
       setNewBill({ unit_id: '', amount: '', description: '', due_date: '', payment_method: 'Bank Transfer' });
+      setUnitSearchTerm('');
+      setUnitDropdownOpen(false);
       setShowGenerateInvoiceModal(false);
       fetchData();
       setTimeout(() => setSuccessMsg(''), 4000);
@@ -573,16 +784,25 @@ export default function AdminDashboard() {
     }
   };
 
-  // Update status & staff assignment concurrently from modal view
+  // Update status, staff assignment & description concurrently from modal view
   const handleUpdateComplaintDetails = async (e) => {
     e.preventDefault();
     if (!selectedComplaint) return;
     try {
+      // Always update status
       await api.put(`/complaints/${selectedComplaint.id}/status`, { status: selectedComplaint.status });
+
+      // Update description if changed
+      if (selectedComplaint.description && selectedComplaint.description.trim() !== '') {
+        await api.put(`/complaints/${selectedComplaint.id}/description`, { description: selectedComplaint.description });
+      }
+
+      // Assign staff if selected
       if (selectedComplaint.assigned_staff_id) {
         await api.put(`/complaints/${selectedComplaint.id}/assign`, { assigned_staff_id: parseInt(selectedComplaint.assigned_staff_id) });
       }
-      setSuccessMsg("Complaint ticket details updated successfully.");
+
+      setSuccessMsg("Complaint ticket updated successfully. Notifications sent.");
       setSelectedComplaint(null);
       fetchData();
       setTimeout(() => setSuccessMsg(''), 4000);
@@ -820,10 +1040,17 @@ export default function AdminDashboard() {
   };
 
   // Helper values for display
-  const adminDisplayName = user?.email 
-    ? user.email.split('@')[0].split(/[._-]/).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
-    : 'Alexander Pierce';
-  const adminRoleLabel = user?.role === 'admin' ? 'Super Admin' : 'Staff Admin';
+  const adminDisplayName = user?.full_name
+    || (user?.email
+      ? user.email.split('@')[0].split(/[._-]/).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+      : 'Administrator');
+  const adminRoleLabel = user?.role === 'admin'
+    ? 'Super Admin'
+    : user?.role === 'staff' && user?.sub_role
+      ? (SUB_ROLE_LABELS[user.sub_role] || 'Staff')
+      : user?.role === 'staff'
+        ? 'Staff'
+        : 'Maintenance';
   const metrics = dashboardStats?.metrics || {
     totalUnits: 0,
     occupiedUnits: 0,
@@ -894,7 +1121,15 @@ export default function AdminDashboard() {
             </div>
             <div>
               <h4 className="text-xs font-bold text-slate-800 tracking-tight">{adminDisplayName}</h4>
-              <p className="text-[10px] text-slate-400 font-semibold">{adminRoleLabel}</p>
+              <p className="text-[10px] text-slate-400 font-semibold">
+                {user?.role === 'admin' ? 'Super Admin' : user?.role === 'staff' ? 'Staff' : 'Maintenance'}
+              </p>
+              {/* Sub-role badge for staff */}
+              {user?.role === 'staff' && user?.sub_role && (
+                <span className="inline-block text-[8px] font-black uppercase tracking-wider bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-md mt-0.5">
+                  {SUB_ROLE_LABELS[user.sub_role] || user.sub_role}
+                </span>
+              )}
             </div>
           </div>
           <button 
@@ -991,7 +1226,7 @@ export default function AdminDashboard() {
 
           {/* Right Header Controls */}
           <div className="flex items-center gap-4">
-            {activeTab === 'approvals' && (
+            {activeTab === 'approvals' && getRbac(user, 'users').add && (
               <button 
                 onClick={() => setShowAddUserModal(true)}
                 className="py-1.5 px-3 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm"
@@ -1011,17 +1246,19 @@ export default function AdminDashboard() {
                 >
                   Export
                 </button>
-                <button 
-                  onClick={() => setShowAddResidentModal(true)}
-                  className="py-1.5 px-3 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add New Resident</span>
-                </button>
+                {getRbac(user, 'residents').add && (
+                  <button 
+                    onClick={() => setShowAddResidentModal(true)}
+                    className="py-1.5 px-3 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add New Resident</span>
+                  </button>
+                )}
               </div>
             )}
 
-            {activeTab === 'units' && (
+            {activeTab === 'units' && !getRbac(user, 'units').restricted && (
               <div className="flex items-center gap-2">
                 <button 
                   onClick={() => {
@@ -1031,17 +1268,19 @@ export default function AdminDashboard() {
                 >
                   Export
                 </button>
-                <button 
-                  onClick={() => setShowAddUnitModal(true)}
-                  className="py-1.5 px-3 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add New Unit</span>
-                </button>
+                {getRbac(user, 'units').add && (
+                  <button 
+                    onClick={() => setShowAddUnitModal(true)}
+                    className="py-1.5 px-3 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add New Unit</span>
+                  </button>
+                )}
               </div>
             )}
 
-            {activeTab === 'facility' && (
+            {activeTab === 'facility' && !getRbac(user, 'facility').restricted && (
               <div className="flex items-center gap-2 animate-in fade-in duration-200">
                 <button 
                   onClick={() => setShowBookingRequestsModal(true)}
@@ -1050,13 +1289,15 @@ export default function AdminDashboard() {
                   <Calendar className="w-3.5 h-3.5 text-slate-500" />
                   <span>View Booking Requests</span>
                 </button>
-                <button 
-                  onClick={() => setShowAddFacilityModal(true)}
-                  className="py-1.5 px-3 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add New Facility</span>
-                </button>
+                {getRbac(user, 'facility').add && (
+                  <button 
+                    onClick={() => setShowAddFacilityModal(true)}
+                    className="py-1.5 px-3 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add New Facility</span>
+                  </button>
+                )}
               </div>
             )}
 
@@ -1073,7 +1314,7 @@ export default function AdminDashboard() {
               </button>
             )}
 
-            {activeTab === 'events' && (
+            {activeTab === 'events' && getRbac(user, 'events').add && (
               <button 
                 onClick={() => setShowAddEventModal(true)}
                 className="py-1.5 px-3 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm animate-in fade-in duration-200"
@@ -1083,7 +1324,7 @@ export default function AdminDashboard() {
               </button>
             )}
 
-            {activeTab === 'notices' && (
+            {activeTab === 'notices' && getRbac(user, 'notices').add && (
               <button 
                 onClick={() => setShowAddNoticeModal(true)}
                 className="py-1.5 px-3 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm animate-in fade-in duration-200"
@@ -1548,7 +1789,9 @@ export default function AdminDashboard() {
                               </td>
                               <td className="py-3 capitalize font-semibold">{u.role}</td>
                               <td className="py-3 font-bold text-slate-700">
-                                {u.building_name && u.unit_number ? `${u.building_name}-${u.unit_number}` : u.unit_number || '—'}
+                                {u.building_name && u.unit_number 
+                                  ? `${u.building_name} - ${u.unit_number}` 
+                                  : u.unit_number || u.building_name || '—'}
                               </td>
                               <td className="py-3 font-medium">{u.email}</td>
                               <td className="py-3">
@@ -1560,32 +1803,68 @@ export default function AdminDashboard() {
                                   {u.status === 'approved' ? 'ACTIVE' : u.status}
                                 </span>
                               </td>
-                              <td className="py-3 text-right pr-6 space-x-2">
-                                {u.status !== 'approved' && (
+                              <td className="py-3 text-right pr-6">
+                                <div className="flex items-center justify-end gap-1.5">
                                   <button
-                                    onClick={() => handleUpdateStatus(u.id, 'approved')}
-                                    className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200/50 text-[10px] font-bold rounded cursor-pointer transition"
-                                    title="Activate/Approve Account"
+                                    onClick={() => setSelectedUserView(u)}
+                                    className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200/50 text-[10px] font-bold rounded cursor-pointer transition flex items-center gap-1"
+                                    title="View Details"
                                   >
-                                    Activate
+                                    <Eye className="w-3 h-3" />
+                                    View
                                   </button>
-                                )}
-                                {u.status === 'approved' && (
-                                  <button
-                                    onClick={() => handleUpdateStatus(u.id, 'suspended')}
-                                    className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200/50 text-[10px] font-bold rounded cursor-pointer transition"
-                                    title="Suspend Account"
-                                  >
-                                    Suspend
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => handleDeleteUser(u.id)}
-                                  className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200/50 text-[10px] font-bold rounded cursor-pointer transition"
-                                  title="Delete User"
-                                >
-                                  Delete
-                                </button>
+                                  {getRbac(user, 'users').edit && !(u.role === 'admin' && user?.role !== 'admin') && (
+                                   <button
+                                     onClick={() => {
+                                       setSelectedUserEdit(u);
+                                       setEditUserForm({
+                                         id: u.id,
+                                         full_name: u.full_name || '',
+                                         email: u.email || '',
+                                         role: u.role || 'homeowner',
+                                         status: u.status || 'approved',
+                                         building_name: u.building_name || '',
+                                         unit_number: u.unit_number || '',
+                                         phone_number: u.phone_number || '',
+                                         vehicle_number: u.vehicle_number || '',
+                                         nic_or_passport: u.nic_or_passport || ''
+                                       });
+                                     }}
+                                     className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200/50 text-[10px] font-bold rounded cursor-pointer transition flex items-center gap-1"
+                                     title="Edit Details"
+                                   >
+                                     <Edit className="w-3 h-3" />
+                                     Edit
+                                   </button>
+                                  )}
+                                  {u.status !== 'approved' && getRbac(user, 'users').edit && (
+                                     <button
+                                       onClick={() => handleUpdateStatus(u.id, 'approved')}
+                                       className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200/50 text-[10px] font-bold rounded cursor-pointer transition"
+                                       title="Activate/Approve Account"
+                                     >
+                                       Activate
+                                     </button>
+                                  )}
+                                  {u.status === 'approved' && getRbac(user, 'users').edit && (
+                                     <button
+                                       onClick={() => handleUpdateStatus(u.id, 'suspended')}
+                                       className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200/50 text-[10px] font-bold rounded cursor-pointer transition"
+                                       title="Suspend Account"
+                                     >
+                                       Suspend
+                                     </button>
+                                  )}
+                                  {getRbac(user, 'users').delete && (
+                                   <button
+                                     onClick={() => handleDeleteUser(u.id)}
+                                     className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200/50 text-[10px] font-bold rounded cursor-pointer transition"
+                                     title="Delete User"
+                                   >
+                                     Delete
+                                   </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           ))
@@ -1648,18 +1927,25 @@ export default function AdminDashboard() {
                         </div>
 
                         <div className="flex gap-2">
-                          <button
-                            onClick={() => handleApproval(owner.id, 'approve')}
-                            className="flex-1 py-1.5 bg-[#133fbd] hover:bg-[#0f3299] text-white text-[10px] font-bold rounded-lg cursor-pointer transition text-center shadow-sm"
-                          >
-                            APPROVE
-                          </button>
-                          <button
-                            onClick={() => handleApproval(owner.id, 'reject')}
-                            className="flex-1 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-[10px] font-bold rounded-lg cursor-pointer transition text-center"
-                          >
-                            REJECT
-                          </button>
+                          {getRbac(user, 'users').canApprove && (
+                            <button
+                              onClick={() => handleApproval(owner.id, 'approve')}
+                              className="flex-1 py-1.5 bg-[#133fbd] hover:bg-[#0f3299] text-white text-[10px] font-bold rounded-lg cursor-pointer transition text-center shadow-sm"
+                            >
+                              APPROVE
+                            </button>
+                          )}
+                          {getRbac(user, 'users').canReject && (
+                            <button
+                              onClick={() => handleApproval(owner.id, 'reject')}
+                              className="flex-1 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-[10px] font-bold rounded-lg cursor-pointer transition text-center"
+                            >
+                              REJECT
+                            </button>
+                          )}
+                          {!getRbac(user, 'users').canApprove && !getRbac(user, 'users').canReject && (
+                            <span className="text-[10px] text-slate-400 font-semibold italic">View Only</span>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1679,18 +1965,25 @@ export default function AdminDashboard() {
                         </div>
 
                         <div className="flex gap-2">
-                          <button
-                            onClick={() => handleApproval(tenant.id, 'approve')}
-                            className="flex-1 py-1.5 bg-[#133fbd] hover:bg-[#0f3299] text-white text-[10px] font-bold rounded-lg cursor-pointer transition text-center shadow-sm"
-                          >
-                            APPROVE
-                          </button>
-                          <button
-                            onClick={() => handleApproval(tenant.id, 'reject')}
-                            className="flex-1 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-[10px] font-bold rounded-lg cursor-pointer transition text-center"
-                          >
-                            REJECT
-                          </button>
+                          {getRbac(user, 'users').canApprove && (
+                            <button
+                              onClick={() => handleApproval(tenant.id, 'approve')}
+                              className="flex-1 py-1.5 bg-[#133fbd] hover:bg-[#0f3299] text-white text-[10px] font-bold rounded-lg cursor-pointer transition text-center shadow-sm"
+                            >
+                              APPROVE
+                            </button>
+                          )}
+                          {getRbac(user, 'users').canReject && (
+                            <button
+                              onClick={() => handleApproval(tenant.id, 'reject')}
+                              className="flex-1 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-[10px] font-bold rounded-lg cursor-pointer transition text-center"
+                            >
+                              REJECT
+                            </button>
+                          )}
+                          {!getRbac(user, 'users').canApprove && !getRbac(user, 'users').canReject && (
+                            <span className="text-[10px] text-slate-400 font-semibold italic">View Only</span>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1857,8 +2150,8 @@ export default function AdminDashboard() {
                                     <span className="text-[10px] text-slate-400 font-semibold uppercase">{r.role}</span>
                                   </div>
                                 </td>
-                                <td className="py-3.5 font-extrabold text-slate-700">{r.unit_number || 'A-204'}</td>
-                                <td className="py-3.5 font-medium">{r.building_name || 'Block A'}</td>
+                                <td className="py-3.5 font-extrabold text-slate-700">{r.unit_number || '—'}</td>
+                                <td className="py-3.5 font-medium">{r.building_name || 'Unassigned'}</td>
                                 <td className="py-3.5">
                                   <span className="block font-medium text-slate-700">{r.email}</span>
                                   <span className="text-[10px] text-slate-400 font-semibold">{r.phone_number || '+1 234 567 890'}</span>
@@ -1978,7 +2271,7 @@ export default function AdminDashboard() {
                       </div>
                     ) : (
                       <div className="p-3 bg-rose-50 border border-rose-200/60 rounded-xl text-rose-800 text-xs font-bold flex items-center justify-between">
-                        <span>Outstanding: ${Number(selectedResident.outstanding_amount).toFixed(2)}</span>
+                        <span>Outstanding: LKR {Number(selectedResident.outstanding_amount).toFixed(2)}</span>
                         <X className="w-4 h-4 text-rose-600" />
                       </div>
                     )}
@@ -1986,32 +2279,36 @@ export default function AdminDashboard() {
 
                   {/* Action triggers */}
                   <div className="pt-2 flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setEditResidentForm({
-                          id: selectedResident.id,
-                          email: selectedResident.email,
-                          role: selectedResident.role,
-                          status: selectedResident.status,
-                          full_name: selectedResident.full_name || '',
-                          phone_number: selectedResident.phone_number || '',
-                          building_name: selectedResident.building_name || '',
-                          unit_number: selectedResident.unit_number || '',
-                          vehicle_number: selectedResident.vehicle_number || ''
-                        });
-                        setShowEditResidentModal(true);
-                      }}
-                      className="flex-1 py-2.5 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-sm"
-                    >
-                      Edit Profile
-                    </button>
-                    <button
-                      onClick={() => handleDeleteUser(selectedResident.id)}
-                      className="p-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-red-600 rounded-lg cursor-pointer transition"
-                      title="Remove Account"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {getRbac(user, 'residents').edit && (
+                      <button
+                        onClick={() => {
+                          setEditResidentForm({
+                            id: selectedResident.id,
+                            email: selectedResident.email,
+                            role: selectedResident.role,
+                            status: selectedResident.status,
+                            full_name: selectedResident.full_name || '',
+                            phone_number: selectedResident.phone_number || '',
+                            building_name: selectedResident.building_name || '',
+                            unit_number: selectedResident.unit_number || '',
+                            vehicle_number: selectedResident.vehicle_number || ''
+                          });
+                          setShowEditResidentModal(true);
+                        }}
+                        className="flex-1 py-2.5 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-sm"
+                      >
+                        Edit Profile
+                      </button>
+                    )}
+                    {getRbac(user, 'residents').delete && (
+                      <button
+                        onClick={() => handleDeleteUser(selectedResident.id)}
+                        className="p-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-red-600 rounded-lg cursor-pointer transition"
+                        title="Remove Account"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
 
                 </div>
@@ -2022,6 +2319,9 @@ export default function AdminDashboard() {
 
           {/* 3.4 activeTab = UNITS (Unit & Inventory) */}
           {activeTab === 'units' && (
+            getRbac(user, 'units').restricted
+              ? <PageRestrictedBanner pageName="Unit & Inventory" user={user} />
+              :
             <div className="space-y-6">
               
               {/* Row 1 Metrics: Apartment units */}
@@ -2241,7 +2541,22 @@ export default function AdminDashboard() {
                               </span>
                             </td>
                             <td className="py-3.5 font-bold text-slate-700">
-                              {u.tenant_name || u.owner_name || (
+                              {(u.owner_id || u.tenant_id) ? (
+                                <div className="flex flex-col gap-0.5">
+                                  {u.owner_id && (
+                                    <span className="text-slate-800 text-xs font-bold">
+                                      {u.owner_name || u.owner_email || `User #${u.owner_id}`}
+                                      <span className="ml-1 text-[9px] font-bold bg-blue-50 text-blue-600 border border-blue-100 rounded px-1 py-px">Owner</span>
+                                    </span>
+                                  )}
+                                  {u.tenant_id && (
+                                    <span className="text-slate-600 text-xs font-semibold">
+                                      {u.tenant_name || u.tenant_email || `User #${u.tenant_id}`}
+                                      <span className="ml-1 text-[9px] font-bold bg-amber-50 text-amber-600 border border-amber-100 rounded px-1 py-px">Tenant</span>
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
                                 <span className="text-slate-400 font-semibold italic">Unassigned</span>
                               )}
                             </td>
@@ -2249,20 +2564,32 @@ export default function AdminDashboard() {
                               {u.parking_slot_number ? `Lot #${u.parking_slot_number}` : '—'}
                             </td>
                             <td className="py-3.5 text-right pr-6">
-                              <button
-                                onClick={() => {
-                                  setAllocation({
-                                    unitId: u.id,
-                                    owner_id: u.owner_id || '',
-                                    tenant_id: u.tenant_id || '',
-                                    parking_slot_id: u.parking_slot_id || ''
-                                  });
-                                  setShowAllocateModal(true);
-                                }}
-                                className="px-2.5 py-1 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-600 text-[10px] font-bold rounded cursor-pointer transition"
-                              >
-                                Allocate Resources
-                              </button>
+                              {getRbac(user, 'units').canAllocate ? (
+                                <button
+                                  onClick={() => {
+                                    setAllocation({
+                                      unitId: u.id,
+                                      owner_id: u.owner_id || '',
+                                      tenant_id: u.tenant_id || '',
+                                      parking_slot_id: u.parking_slot_id || '',
+                                      ownerLabel: u.owner_name ? `${u.owner_name} (${u.owner_email || ''})` : '',
+                                      tenantLabel: u.tenant_name ? `${u.tenant_name} (${u.tenant_email || ''})` : ''
+                                    });
+                                    setOwnerSearch(u.owner_name || '');
+                                    setTenantSearch(u.tenant_name || '');
+                                    setOwnerResults([]);
+                                    setTenantResults([]);
+                                    setShowOwnerDrop(false);
+                                    setShowTenantDrop(false);
+                                    setShowAllocateModal(true);
+                                  }}
+                                  className="px-2.5 py-1 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-600 text-[10px] font-bold rounded cursor-pointer transition"
+                                >
+                                  Allocate Resources
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 font-semibold italic">View Only</span>
+                              )}
                             </td>
                           </tr>
                         ))
@@ -2389,6 +2716,9 @@ export default function AdminDashboard() {
 
           {/* 3.5 activeTab = COMPLAINTS */}
           {activeTab === 'complaints' && (
+            getRbac(user, 'complaints').restricted
+              ? <PageRestrictedBanner pageName="Complaints" user={user} />
+              :
             <div className="space-y-6 animate-in fade-in duration-200">
               
               {/* Metrics cards row */}
@@ -2980,21 +3310,30 @@ export default function AdminDashboard() {
                               </div>
                             </td>
                             <td className="py-3 text-right pr-2 flex items-center justify-end gap-2.5">
-                              <button
-                                onClick={() => {
-                                  setEditFacilityForm(fac);
-                                  setShowEditFacilityModal(true);
-                                }}
-                                className="text-slate-400 hover:text-blue-700 cursor-pointer"
-                              >
-                                ✎
-                              </button>
-                              <button
-                                onClick={() => handleDeleteFacility(fac.id)}
-                                className="text-slate-400 hover:text-rose-600 cursor-pointer"
-                              >
-                                🗑
-                              </button>
+                              {getRbac(user, 'facility').edit && (
+                                <button
+                                  onClick={() => {
+                                    setEditFacilityForm(fac);
+                                    setShowEditFacilityModal(true);
+                                  }}
+                                  className="text-slate-400 hover:text-blue-700 cursor-pointer"
+                                  title="Edit Facility"
+                                >
+                                  ✎
+                                </button>
+                              )}
+                              {getRbac(user, 'facility').delete && (
+                                <button
+                                  onClick={() => handleDeleteFacility(fac.id)}
+                                  className="text-slate-400 hover:text-rose-600 cursor-pointer"
+                                  title="Delete Facility"
+                                >
+                                  🗑
+                                </button>
+                              )}
+                              {!getRbac(user, 'facility').edit && !getRbac(user, 'facility').delete && (
+                                <span className="text-[10px] text-slate-400 font-semibold italic">View Only</span>
+                              )}
                             </td>
                           </tr>
                         ))
@@ -3074,20 +3413,32 @@ export default function AdminDashboard() {
                                 </span>
                               </td>
                               <td className="py-3.5 text-right pr-2 text-slate-400 font-extrabold text-sm select-none hover:text-slate-600 cursor-pointer">
-                                <button 
-                                  onClick={() => {
-                                    setAllocation({
-                                      unitId: slot.unit_id || '',
-                                      owner_id: '',
-                                      tenant_id: '',
-                                      parking_slot_id: slot.id
-                                    });
-                                    setShowAllocateModal(true);
-                                  }}
-                                  className="text-xs text-blue-700 hover:underline font-bold"
-                                >
-                                  Allocate Slot
-                                </button>
+                                {getRbac(user, 'facility').canAllocateParking ? (
+                                  <button 
+                                    onClick={() => {
+                                      setAllocation({
+                                        unitId: slot.unit_id || '',
+                                        owner_id: '',
+                                        tenant_id: '',
+                                        parking_slot_id: slot.id,
+                                        ownerLabel: '',
+                                        tenantLabel: ''
+                                      });
+                                      setOwnerSearch('');
+                                      setTenantSearch('');
+                                      setOwnerResults([]);
+                                      setTenantResults([]);
+                                      setShowOwnerDrop(false);
+                                      setShowTenantDrop(false);
+                                      setShowAllocateModal(true);
+                                    }}
+                                    className="text-xs text-blue-700 hover:underline font-bold"
+                                  >
+                                    Allocate Slot
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 font-semibold italic">View Only</span>
+                                )}
                               </td>
                             </tr>
                           );
@@ -3209,32 +3560,39 @@ export default function AdminDashboard() {
                                 </span>
                               </td>
                               <td className="py-3 text-right pr-2">
-                                <div className="flex items-center justify-end gap-2.5">
-                                  <button 
-                                    onClick={() => {
-                                      setEditEventForm({
-                                        id: e.id,
-                                        name: e.name,
-                                        type: e.type,
-                                        date: e.date.substring(0, 10),
-                                        time: e.time,
-                                        location: e.location,
-                                        status: e.status
-                                      });
-                                      setShowEditEventModal(true);
-                                    }}
-                                    className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-blue-700 transition font-bold"
-                                    title="Edit Event"
-                                  >
-                                    ✏️
-                                  </button>
-                                  <button 
-                                    onClick={() => handleDeleteEvent(e.id)}
-                                    className="p-1 hover:bg-red-55/10 rounded text-slate-500 hover:text-red-600 transition font-bold"
-                                    title="Delete Event"
-                                  >
-                                    🗑️
-                                  </button>
+                                <div className="flex justify-end gap-1.5">
+                                    {getRbac(user, 'events').edit && (
+                                      <button 
+                                        onClick={() => {
+                                          setEditEventForm({
+                                            id: e.id,
+                                            name: e.name,
+                                            type: e.type,
+                                            date: e.date.substring(0, 10),
+                                            time: e.time,
+                                            location: e.location,
+                                            status: e.status
+                                          });
+                                          setShowEditEventModal(true);
+                                        }}
+                                        className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-blue-700 transition font-bold"
+                                        title="Edit Event"
+                                      >
+                                        ✏️
+                                      </button>
+                                    )}
+                                    {getRbac(user, 'events').delete && (
+                                      <button 
+                                        onClick={() => handleDeleteEvent(e.id)}
+                                        className="p-1 hover:bg-red-55/10 rounded text-slate-500 hover:text-red-600 transition font-bold"
+                                        title="Delete Event"
+                                      >
+                                        🗑️
+                                      </button>
+                                    )}
+                                    {!getRbac(user, 'events').edit && !getRbac(user, 'events').delete && (
+                                      <span className="text-[10px] text-slate-400 font-semibold italic">View Only</span>
+                                    )}
                                 </div>
                               </td>
                             </tr>
@@ -3637,40 +3995,40 @@ export default function AdminDashboard() {
                                 </span>
                               </td>
                               <td className="py-3.5 text-right pr-2">
-                                <div className="flex items-center justify-end gap-2.5">
-                                  <button 
-                                    onClick={() => alert(`Announcement Details:\n\nID: ${n.notice_id || n.id}\nTitle: ${n.title}\nCategory: ${n.category}\nContent: ${n.content}\nAudience: ${n.audience}\nPriority: ${n.priority}`)}
-                                    className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-blue-700 transition"
-                                    title="View Details"
-                                  >
-                                    👁️
-                                  </button>
-                                  <button 
-                                    onClick={() => {
-                                      setEditNoticeForm({
-                                        id: n.id,
-                                        title: n.title,
-                                        content: n.content,
-                                        category: n.category,
-                                        expiry_date: n.expiry_date ? n.expiry_date.substring(0, 10) : '',
-                                        priority: n.priority,
-                                        audience: n.audience,
-                                        status: n.status
-                                      });
-                                      setShowEditNoticeModal(true);
-                                    }}
-                                    className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-blue-700 transition"
-                                    title="Edit Notice"
-                                  >
-                                    ✏️
-                                  </button>
-                                  <button 
-                                    onClick={() => handleDeleteNotice(n.id)}
-                                    className="p-1 hover:bg-red-55/10 rounded text-slate-500 hover:text-red-600 transition animate-in duration-200"
-                                    title="Delete Notice"
-                                  >
-                                    🗑️
-                                  </button>
+                                <div className="flex justify-end gap-1.5">
+                                  {getRbac(user, 'notices').edit && (
+                                    <button 
+                                      onClick={() => {
+                                        setEditNoticeForm({
+                                          id: n.id,
+                                          title: n.title,
+                                          content: n.content,
+                                          category: n.category,
+                                          expiry_date: n.expiry_date ? n.expiry_date.substring(0, 10) : '',
+                                          priority: n.priority,
+                                          audience: n.audience,
+                                          status: n.status
+                                        });
+                                        setShowEditNoticeModal(true);
+                                      }}
+                                      className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-blue-700 transition"
+                                      title="Edit Notice"
+                                    >
+                                      ✏️
+                                    </button>
+                                  )}
+                                  {getRbac(user, 'notices').delete && (
+                                    <button 
+                                      onClick={() => handleDeleteNotice(n.id)}
+                                      className="p-1 hover:bg-red-55/10 rounded text-slate-500 hover:text-red-600 transition animate-in duration-200"
+                                      title="Delete Notice"
+                                    >
+                                      🗑️
+                                    </button>
+                                  )}
+                                  {!getRbac(user, 'notices').edit && !getRbac(user, 'notices').delete && (
+                                    <span className="text-[10px] text-slate-400 font-semibold italic">View Only</span>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -3793,6 +4151,9 @@ export default function AdminDashboard() {
 
           {/* 3.8 activeTab = BILLS (Payments & Billing) */}
           {activeTab === 'bills' && (
+            getRbac(user, 'bills').restricted
+              ? <PageRestrictedBanner pageName="Payments & Invoice" user={user} />
+              :
             <div className="space-y-6 animate-in fade-in duration-200">
 
               {/* Page Header with Actions */}
@@ -3802,18 +4163,20 @@ export default function AdminDashboard() {
                   <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Manage invoices and track resident payments.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setShowRecordPaymentModal(true)}
-                    className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-bold rounded-lg cursor-pointer transition shadow-sm"
-                  >
-                    <CreditCard className="w-3.5 h-3.5" /> Record Payment
-                  </button>
-                  <button
-                    onClick={() => setShowGenerateInvoiceModal(true)}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-[#133fbd] hover:bg-[#0f3299] text-white text-[10px] font-bold rounded-lg cursor-pointer transition shadow-sm"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Generate Invoice
-                  </button>
+                  {getRbac(user, 'bills').add && (<>
+                    <button
+                      onClick={() => setShowRecordPaymentModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-bold rounded-lg cursor-pointer transition shadow-sm"
+                    >
+                      <CreditCard className="w-3.5 h-3.5" /> Record Payment
+                    </button>
+                    <button
+                      onClick={() => setShowGenerateInvoiceModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-[#133fbd] hover:bg-[#0f3299] text-white text-[10px] font-bold rounded-lg cursor-pointer transition shadow-sm"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Generate Invoice
+                    </button>
+                  </>)}
                 </div>
               </div>
 
@@ -3836,7 +4199,7 @@ export default function AdminDashboard() {
                   <div className="flex justify-between items-start">
                     <div>
                       <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Payments Collected</span>
-                      <h3 className="text-2xl font-black text-slate-800 mt-1">${(billMetrics.paymentsCollected || 0).toLocaleString()}</h3>
+                      <h3 className="text-2xl font-black text-slate-800 mt-1">LKR {(billMetrics.paymentsCollected || 0).toLocaleString()}</h3>
                       <p className="text-[9px] text-slate-400 font-bold mt-1">Current month</p>
                     </div>
                     <div className="w-9 h-9 bg-emerald-50 rounded-xl flex items-center justify-center">
@@ -3849,7 +4212,7 @@ export default function AdminDashboard() {
                   <div className="flex justify-between items-start">
                     <div>
                       <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Pending Payments</span>
-                      <h3 className="text-2xl font-black text-slate-800 mt-1">${(billMetrics.pendingAmount || 0).toLocaleString()}</h3>
+                      <h3 className="text-2xl font-black text-slate-800 mt-1">LKR {(billMetrics.pendingAmount || 0).toLocaleString()}</h3>
                       <p className="text-[9px] text-amber-600 font-bold mt-1">{billMetrics.pendingCount} invoices pending</p>
                     </div>
                     <div className="w-9 h-9 bg-amber-50 rounded-xl flex items-center justify-center">
@@ -3862,7 +4225,7 @@ export default function AdminDashboard() {
                   <div className="flex justify-between items-start">
                     <div>
                       <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Overdue Payments</span>
-                      <h3 className="text-2xl font-black text-red-600 mt-1">${(billMetrics.overdueAmount || 0).toLocaleString()}</h3>
+                      <h3 className="text-2xl font-black text-red-600 mt-1">LKR {(billMetrics.overdueAmount || 0).toLocaleString()}</h3>
                       <p className="text-[9px] text-red-500 font-bold mt-1">{billMetrics.overdueCount} invoices critical</p>
                     </div>
                     <div className="w-9 h-9 bg-red-50 rounded-xl flex items-center justify-center">
@@ -3958,7 +4321,7 @@ export default function AdminDashboard() {
                                 {bill.resident_name || 'N/A'}
                               </td>
                               <td className="px-5 py-3.5 font-extrabold text-slate-800 text-[10px]">
-                                ${parseFloat(bill.amount).toFixed(2)}
+                                LKR {parseFloat(bill.amount).toFixed(2)}
                               </td>
                               <td className="px-5 py-3.5 text-slate-400 font-semibold text-[10px]">
                                 {bill.created_at ? new Date(bill.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
@@ -3980,13 +4343,13 @@ export default function AdminDashboard() {
                               <td className="px-5 py-3.5">
                                 <div className="flex items-center gap-1.5">
                                   <button
-                                    onClick={() => alert(`Invoice: #${bill.invoice_id || bill.id}\nUnit: ${bill.block_name}-${bill.unit_number}\nResident: ${bill.resident_name || 'N/A'}\nAmount: $${bill.amount}\nDescription: ${bill.description}\nDue: ${new Date(bill.due_date).toLocaleDateString()}\nStatus: ${bill.status.toUpperCase()}`)}
+                                    onClick={() => alert(`Invoice: #${bill.invoice_id || bill.id}\nUnit: ${bill.block_name}-${bill.unit_number}\nResident: ${bill.resident_name || 'N/A'}\nAmount: LKR ${bill.amount}\nDescription: ${bill.description}\nDue: ${new Date(bill.due_date).toLocaleDateString()}\nStatus: ${bill.status.toUpperCase()}`)}
                                     className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer transition"
                                     title="View"
                                   >
                                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                   </button>
-                                  {bill.status === 'unpaid' ? (
+                                  {bill.status === 'unpaid' && (getRbac(user, 'bills').add || getRbac(user, 'bills').edit) && (
                                     <button
                                       onClick={() => { setRecordPaymentForm({ billId: bill.id, payment_method: 'Bank Transfer', notes: '' }); setShowRecordPaymentModal(true); }}
                                       className="p-1.5 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 cursor-pointer transition"
@@ -3994,7 +4357,8 @@ export default function AdminDashboard() {
                                     >
                                       <Check className="w-3.5 h-3.5" />
                                     </button>
-                                  ) : (
+                                  )}
+                                  {bill.status !== 'unpaid' && getRbac(user, 'bills').edit && (
                                     <button
                                       onClick={() => handleUpdateBillStatus(bill.id, 'unpaid')}
                                       className="p-1.5 rounded-lg hover:bg-amber-50 text-slate-400 hover:text-amber-600 cursor-pointer transition"
@@ -4003,13 +4367,15 @@ export default function AdminDashboard() {
                                       <X className="w-3.5 h-3.5" />
                                     </button>
                                   )}
-                                  <button
-                                    onClick={() => handleDeleteBill(bill.id)}
-                                    className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 cursor-pointer transition"
-                                    title="Delete"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
+                                  {getRbac(user, 'bills').delete && (
+                                    <button
+                                      onClick={() => handleDeleteBill(bill.id)}
+                                      className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 cursor-pointer transition"
+                                      title="Delete"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -4043,44 +4409,199 @@ export default function AdminDashboard() {
               {/* Bottom Section: Monthly Chart + Overdue Panel */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-                {/* Monthly Payment Collection Chart */}
-                <div className="lg:col-span-2 bg-white border border-slate-200/60 p-5 rounded-2xl shadow-sm">
-                  <div className="flex justify-between items-center mb-6">
-                    <div>
-                      <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">Monthly Payment Collection</h3>
-                      <p className="text-[9px] text-slate-400 font-bold mt-0.5">Revenue trends for the past 6 months</p>
+                {/* Monthly Payment Collection Chart – Premium Design */}
+                <div className="lg:col-span-2 bg-white border border-slate-200/60 rounded-2xl shadow-sm overflow-hidden">
+
+                  {/* Chart Header */}
+                  <div className="px-5 pt-5 pb-4 border-b border-slate-50">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">Monthly Payment Collection</h3>
+                        <p className="text-[9px] text-slate-400 font-semibold mt-0.5">Revenue trends · last 6 months</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Total Collected</p>
+                          <p className="text-sm font-black text-[#133fbd]">
+                            LKR {billMonthlyData.reduce((s, d) => s + parseFloat(d.collected || 0), 0).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
+                          <TrendingUp className="w-4 h-4 text-[#133fbd]" />
+                        </div>
+                      </div>
                     </div>
-                    <span className="text-[9px] font-extrabold text-slate-400 bg-slate-50 border border-slate-100 px-2 py-1 rounded-lg">
-                      {new Date().getFullYear()}
-                    </span>
+
+                    {/* Mini stat row */}
+                    {billMonthlyData.length > 0 && (() => {
+                      const vals = billMonthlyData.map(d => parseFloat(d.collected || 0));
+                      const peak = Math.max(...vals);
+                      const peakMonth = billMonthlyData[vals.indexOf(peak)]?.month;
+                      const avg = Math.round(vals.reduce((a,b) => a+b, 0) / vals.length);
+                      return (
+                        <div className="flex gap-4 mt-3">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-[#133fbd]" />
+                            <span className="text-[8px] font-bold text-slate-500">Peak: <span className="text-slate-700">{peakMonth} — LKR {peak.toLocaleString()}</span></span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                            <span className="text-[8px] font-bold text-slate-500">Avg/Month: <span className="text-slate-700">LKR {avg.toLocaleString()}</span></span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
-                  {/* Simple bar chart */}
-                  {billMonthlyData.length === 0 ? (
-                    <div className="h-28 flex items-center justify-center">
-                      <p className="text-xs text-slate-300 italic">No payment collection data yet.</p>
-                    </div>
-                  ) : (
-                    <div className="flex items-end gap-3 h-28">
-                      {billMonthlyData.map((item, i) => {
-                        const maxVal = Math.max(...billMonthlyData.map(d => parseFloat(d.collected || 0)), 1);
-                        const heightPct = (parseFloat(item.collected || 0) / maxVal) * 100;
-                        const isLast = i === billMonthlyData.length - 1;
-                        return (
-                          <div key={i} className="flex flex-col items-center gap-1 flex-1">
-                            <span className="text-[8px] text-slate-400 font-bold">${Math.round(item.collected/1000)}k</span>
-                            <div
-                              className={`w-full rounded-t-md transition-all ${isLast ? 'bg-blue-600' : 'bg-slate-200'}`}
-                              style={{ height: `${Math.max(heightPct, 4)}%` }}
-                              title={`${item.month}: $${parseFloat(item.collected).toLocaleString()}`}
-                            />
-                            <span className={`text-[8px] font-extrabold uppercase ${isLast ? 'text-blue-600' : 'text-slate-400'}`}>{item.month}</span>
+                  {/* Chart Body */}
+                  <div className="px-5 pt-5 pb-4">
+                    {billMonthlyData.length === 0 ? (
+                      <div className="h-36 flex flex-col items-center justify-center gap-2">
+                        <div className="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center">
+                          <TrendingUp className="w-5 h-5 text-slate-200" />
+                        </div>
+                        <p className="text-xs text-slate-300 italic">No payment collection data yet.</p>
+                      </div>
+                    ) : (() => {
+                      const vals   = billMonthlyData.map(d => parseFloat(d.collected || 0));
+                      const maxVal = Math.max(...vals, 1);
+                      const chartH = 120; // px height of chart area
+
+                      // SVG area path (smooth line)
+                      const points = billMonthlyData.map((_, i) => {
+                        const x = (i / (billMonthlyData.length - 1 || 1)) * 100;
+                        const y = 100 - (vals[i] / maxVal) * 85;
+                        return `${x},${y}`;
+                      });
+                      const linePath = `M ${points.join(' L ')}`;
+                      const areaPath = `M ${points[0]} L ${points.join(' L ')} L 100,100 L 0,100 Z`;
+
+                      return (
+                        <div className="relative">
+                          {/* Y-axis guide lines */}
+                          <div className="absolute inset-0 flex flex-col justify-between pointer-events-none" style={{ height: chartH }}>
+                            {[100, 75, 50, 25, 0].map(pct => (
+                              <div key={pct} className="flex items-center gap-2">
+                                <span className="text-[7px] font-bold text-slate-300 w-8 text-right shrink-0">
+                                  {pct > 0 ? `${Math.round((maxVal * pct) / 100 / 1000)}k` : '0'}
+                                </span>
+                                <div className="flex-1 border-t border-dashed border-slate-100" />
+                              </div>
+                            ))}
                           </div>
-                        );
-                      })}
+
+                          {/* SVG trend line overlay */}
+                          <div className="ml-10 relative" style={{ height: chartH }}>
+                            <svg
+                              viewBox="0 0 100 100"
+                              preserveAspectRatio="none"
+                              className="absolute inset-0 w-full h-full"
+                              style={{ zIndex: 1 }}
+                            >
+                              <defs>
+                                <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="#133fbd" stopOpacity="0.12" />
+                                  <stop offset="100%" stopColor="#133fbd" stopOpacity="0" />
+                                </linearGradient>
+                              </defs>
+                              <path d={areaPath} fill="url(#areaGrad)" />
+                              <path d={linePath} fill="none" stroke="#133fbd" strokeWidth="1.5" strokeOpacity="0.25" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+
+                            {/* Bar columns */}
+                            <div className="relative flex items-end gap-2 h-full" style={{ zIndex: 2 }}>
+                              {billMonthlyData.map((item, i) => {
+                                const heightPct = Math.max((vals[i] / maxVal) * 100, 3);
+                                const isPeak    = vals[i] === maxVal;
+                                const isLast    = i === billMonthlyData.length - 1;
+                                const opacity   = 0.35 + (vals[i] / maxVal) * 0.65;
+
+                                return (
+                                  <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
+                                    {/* Hover tooltip */}
+                                    <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] font-bold px-2 py-1 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg">
+                                      {item.month}: LKR {parseFloat(item.collected).toLocaleString()}
+                                      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+                                    </div>
+
+                                    {/* Value label above bar */}
+                                    <span className="text-[7px] font-extrabold text-slate-400 group-hover:text-[#133fbd] transition-colors">
+                                      {Math.round(vals[i] / 1000)}k
+                                    </span>
+
+                                    {/* The bar */}
+                                    <div
+                                      className="w-full rounded-t-lg transition-all duration-500 relative overflow-hidden"
+                                      style={{
+                                        height: `${heightPct}%`,
+                                        background: isPeak
+                                          ? 'linear-gradient(to top, #0f3299, #133fbd, #3b5ef5)'
+                                          : isLast
+                                          ? 'linear-gradient(to top, #1e3a8a, #2563eb, #60a5fa)'
+                                          : `linear-gradient(to top, rgba(19,63,189,${opacity * 0.7}), rgba(96,165,250,${opacity}))`,
+                                        boxShadow: isPeak ? '0 -2px 12px rgba(19,63,189,0.35)' : 'none',
+                                      }}
+                                    >
+                                      {/* Shimmer highlight */}
+                                      <div className="absolute inset-x-0 top-0 h-1/3 bg-white/10 rounded-t-lg" />
+                                      {/* Peak crown */}
+                                      {isPeak && (
+                                        <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[8px]">⭐</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* X-axis month labels */}
+                          <div className="ml-10 flex gap-2 mt-2">
+                            {billMonthlyData.map((item, i) => {
+                              const isPeak = vals[i] === Math.max(...vals);
+                              const isLast = i === billMonthlyData.length - 1;
+                              return (
+                                <div key={i} className="flex-1 text-center">
+                                  <span className={`text-[8px] font-extrabold uppercase tracking-wide ${
+                                    isPeak ? 'text-[#133fbd]' : isLast ? 'text-slate-600' : 'text-slate-300'
+                                  }`}>
+                                    {item.month}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Chart Footer */}
+                  <div className="px-5 py-3 border-t border-slate-50 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2.5 h-2.5 rounded-sm" style={{ background: 'linear-gradient(to top, #0f3299, #3b5ef5)' }} />
+                        <span className="text-[8px] font-bold text-slate-400">Peak Month</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2.5 h-2.5 rounded-sm bg-blue-300/60" />
+                        <span className="text-[8px] font-bold text-slate-400">Other Months</span>
+                      </div>
                     </div>
-                  )}
+                    {billMonthlyData.length > 1 && (() => {
+                      const vals = billMonthlyData.map(d => parseFloat(d.collected || 0));
+                      const last = vals[vals.length - 1];
+                      const prev = vals[vals.length - 2];
+                      const pct  = prev > 0 ? Math.round(((last - prev) / prev) * 100) : 0;
+                      return (
+                        <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-extrabold ${pct >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
+                          {pct >= 0 ? '▲' : '▼'} {Math.abs(pct)}% vs prev month
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
+
 
                 {/* Overdue Payments Panel */}
                 <div className="bg-white border border-slate-200/60 p-5 rounded-2xl shadow-sm">
@@ -4112,7 +4633,7 @@ export default function AdminDashboard() {
                               </p>
                               <p className="text-[8px] text-red-500 font-bold">{o.days_overdue} days overdue</p>
                             </div>
-                            <span className="text-[10px] font-extrabold text-slate-800">${parseFloat(o.amount).toFixed(2)}</span>
+                            <span className="text-[10px] font-extrabold text-slate-800">LKR {parseFloat(o.amount).toFixed(2)}</span>
                           </div>
                         );
                       })}
@@ -4170,7 +4691,7 @@ export default function AdminDashboard() {
                             </td>
                             <td className="px-5 py-3.5 font-medium text-slate-700 text-[10px]">{tx.resident_name}</td>
                             <td className="px-5 py-3.5 font-medium text-slate-600 text-[10px]">{tx.block_name}-{tx.unit_number}</td>
-                            <td className="px-5 py-3.5 font-extrabold text-slate-800 text-[10px]">${parseFloat(tx.amount).toFixed(2)}</td>
+                            <td className="px-5 py-3.5 font-extrabold text-slate-800 text-[10px]">LKR {parseFloat(tx.amount).toFixed(2)}</td>
                             <td className="px-5 py-3.5 text-[10px]">
                               <div className="flex items-center gap-1 text-slate-500 font-semibold">
                                 <CreditCard className="w-3 h-3" /> {tx.method}
@@ -4277,13 +4798,14 @@ export default function AdminDashboard() {
                     <select
                       className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 rounded-lg text-xs font-medium appearance-none cursor-pointer"
                       value={newUserForm.role}
-                      onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
+                      onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value, sub_role: '' })}
                     >
                       <option value="homeowner">Homeowner</option>
                       <option value="tenant">Tenant</option>
                       <option value="maintenance">Maintenance Staff</option>
-                      <option value="staff">Staff Admin</option>
-                      <option value="admin">Super Admin</option>
+                      <option value="staff">Staff</option>
+                      {/* Only admins can create admin accounts */}
+                      {user?.role === 'admin' && <option value="admin">Admin (Super Admin)</option>}
                     </select>
                     <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
                   </div>
@@ -4304,6 +4826,29 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               </div>
+
+              {/* Staff Sub Role – shown only when role === 'staff' */}
+              {newUserForm.role === 'staff' && (
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1.5">Staff Sub Role <span className="text-red-500">*</span></label>
+                  <div className="relative">
+                    <select
+                      required
+                      className="w-full pl-3 pr-10 py-2 bg-blue-50 border border-blue-200 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 rounded-lg text-xs font-medium appearance-none cursor-pointer"
+                      value={newUserForm.sub_role}
+                      onChange={(e) => setNewUserForm({ ...newUserForm, sub_role: e.target.value })}
+                    >
+                      <option value="">-- Select Sub Role --</option>
+                      <option value="junior_staff">Junior Staff</option>
+                      <option value="senior_staff">Senior Staff</option>
+                      <option value="staff_admin">Staff Admin</option>
+                      <option value="junior_manager">Junior Manager</option>
+                      <option value="senior_manager">Senior Manager</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-blue-400 pointer-events-none" />
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-3 gap-3 pt-1">
                 <div>
@@ -4720,26 +5265,104 @@ export default function AdminDashboard() {
             </div>
 
             <form onSubmit={handleAllocate} className="space-y-4">
+              {/* Owner searchable combobox */}
               <div>
-                <label className="text-xs font-bold text-slate-500 block mb-1.5">Owner User ID (optional)</label>
-                <input
-                  type="number"
-                  placeholder="e.g. 4"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 placeholder-slate-400/90 rounded-lg transition-all text-xs font-medium"
-                  value={allocation.owner_id}
-                  onChange={(e) => setAllocation({ ...allocation, owner_id: e.target.value })}
-                />
+                <label className="text-xs font-bold text-slate-500 block mb-1.5">Owner (optional)</label>
+                <div className="relative">
+                  <div className="flex gap-1.5">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        placeholder="Search by name or email..."
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 placeholder-slate-400/90 rounded-lg transition-all text-xs font-medium pr-7"
+                        value={ownerSearch}
+                        onChange={(e) => handleOwnerSearchChange(e.target.value)}
+                        onFocus={() => { if (!allocation.owner_id) { setShowOwnerDrop(true); handleOwnerSearchChange(ownerSearch); } }}
+                        onBlur={() => setTimeout(() => setShowOwnerDrop(false), 180)}
+                        autoComplete="off"
+                      />
+                      {ownerLoading && (
+                        <span className="absolute right-2.5 top-2.5 w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      )}
+                    </div>
+                    {allocation.owner_id && (
+                      <button type="button" onClick={clearOwner}
+                        className="px-2 text-slate-400 hover:text-rose-500 border border-slate-200 rounded-lg bg-slate-50 text-xs font-bold transition cursor-pointer"
+                      >✕</button>
+                    )}
+                  </div>
+                  {allocation.owner_id && (
+                    <p className="mt-1 text-[10px] text-emerald-600 font-semibold">✓ {allocation.ownerLabel}</p>
+                  )}
+                  {showOwnerDrop && ownerResults.length > 0 && (
+                    <ul className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-44 overflow-y-auto">
+                      {ownerResults.map(u => (
+                        <li key={u.id}
+                          onMouseDown={() => selectOwner(u)}
+                          className="px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-slate-100 last:border-none"
+                        >
+                          <p className="text-xs font-bold text-slate-800">{u.full_name || '—'}</p>
+                          <p className="text-[10px] text-slate-400">{u.email}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {showOwnerDrop && !ownerLoading && ownerResults.length === 0 && ownerSearch.length > 0 && (
+                    <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg px-3 py-2">
+                      <p className="text-[10px] text-slate-400 italic">No approved homeowners found.</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
+              {/* Tenant searchable combobox */}
               <div>
-                <label className="text-xs font-bold text-slate-500 block mb-1.5">Tenant User ID (optional)</label>
-                <input
-                  type="number"
-                  placeholder="e.g. 5"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 placeholder-slate-400/90 rounded-lg transition-all text-xs font-medium"
-                  value={allocation.tenant_id}
-                  onChange={(e) => setAllocation({ ...allocation, tenant_id: e.target.value })}
-                />
+                <label className="text-xs font-bold text-slate-500 block mb-1.5">Tenant (optional)</label>
+                <div className="relative">
+                  <div className="flex gap-1.5">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        placeholder="Search by name or email..."
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-amber-500 focus:bg-white focus:ring-1 focus:ring-amber-500 outline-none text-slate-800 placeholder-slate-400/90 rounded-lg transition-all text-xs font-medium pr-7"
+                        value={tenantSearch}
+                        onChange={(e) => handleTenantSearchChange(e.target.value)}
+                        onFocus={() => { if (!allocation.tenant_id) { setShowTenantDrop(true); handleTenantSearchChange(tenantSearch); } }}
+                        onBlur={() => setTimeout(() => setShowTenantDrop(false), 180)}
+                        autoComplete="off"
+                      />
+                      {tenantLoading && (
+                        <span className="absolute right-2.5 top-2.5 w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                      )}
+                    </div>
+                    {allocation.tenant_id && (
+                      <button type="button" onClick={clearTenant}
+                        className="px-2 text-slate-400 hover:text-rose-500 border border-slate-200 rounded-lg bg-slate-50 text-xs font-bold transition cursor-pointer"
+                      >✕</button>
+                    )}
+                  </div>
+                  {allocation.tenant_id && (
+                    <p className="mt-1 text-[10px] text-amber-600 font-semibold">✓ {allocation.tenantLabel}</p>
+                  )}
+                  {showTenantDrop && tenantResults.length > 0 && (
+                    <ul className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-44 overflow-y-auto">
+                      {tenantResults.map(u => (
+                        <li key={u.id}
+                          onMouseDown={() => selectTenant(u)}
+                          className="px-3 py-2 hover:bg-amber-50 cursor-pointer border-b border-slate-100 last:border-none"
+                        >
+                          <p className="text-xs font-bold text-slate-800">{u.full_name || '—'}</p>
+                          <p className="text-[10px] text-slate-400">{u.email}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {showTenantDrop && !tenantLoading && tenantResults.length === 0 && tenantSearch.length > 0 && (
+                    <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg px-3 py-2">
+                      <p className="text-[10px] text-slate-400 italic">No approved tenants found.</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -4825,18 +5448,26 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">Complaint Description</span>
-                <div className="p-3 bg-slate-50 border border-slate-150 rounded-xl text-xs text-slate-600 font-medium italic min-h-[80px] max-h-[140px] overflow-y-auto">
-                  "{selectedComplaint.description}"
-                </div>
+                <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">
+                  Complaint Description {getRbac(user, 'complaints').edit && <span className="text-blue-500 normal-case font-medium">(editable)</span>}
+                </span>
+                <textarea
+                  rows={4}
+                  disabled={!getRbac(user, 'complaints').edit}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-slate-700 rounded-xl text-xs font-medium resize-none transition-all duration-200 disabled:opacity-75 disabled:cursor-not-allowed"
+                  value={selectedComplaint.description || ''}
+                  onChange={(e) => setSelectedComplaint({ ...selectedComplaint, description: e.target.value })}
+                  placeholder="Complaint description..."
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-1.5">Update Status</label>
+                  <label className="text-xs font-bold text-slate-500 block mb-1.5">Status</label>
                   <div className="relative">
                     <select
-                      className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 rounded-lg text-xs font-medium appearance-none cursor-pointer"
+                      disabled={!getRbac(user, 'complaints').edit}
+                      className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 rounded-lg text-xs font-medium appearance-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
                       value={selectedComplaint.status}
                       onChange={(e) => setSelectedComplaint({ ...selectedComplaint, status: e.target.value })}
                     >
@@ -4850,10 +5481,11 @@ export default function AdminDashboard() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-1.5">Assign Operations Staff</label>
+                  <label className="text-xs font-bold text-slate-500 block mb-1.5">Assigned Operations Staff</label>
                   <div className="relative">
                     <select
-                      className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 rounded-lg text-xs font-medium appearance-none cursor-pointer"
+                      disabled={!getRbac(user, 'complaints').edit}
+                      className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 rounded-lg text-xs font-medium appearance-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
                       value={selectedComplaint.assigned_staff_id || ''}
                       onChange={(e) => setSelectedComplaint({ ...selectedComplaint, assigned_staff_id: e.target.value })}
                     >
@@ -4875,14 +5507,16 @@ export default function AdminDashboard() {
                   onClick={() => setSelectedComplaint(null)}
                   className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 hover:text-slate-800 text-xs font-bold rounded-lg cursor-pointer transition"
                 >
-                  Cancel
+                  {getRbac(user, 'complaints').edit ? 'Cancel' : 'Close'}
                 </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-sm"
-                >
-                  Update Ticket
-                </button>
+                {getRbac(user, 'complaints').edit && (
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-sm"
+                  >
+                    Update Ticket
+                  </button>
+                )}
               </div>
             </form>
           </div>
@@ -5668,93 +6302,227 @@ export default function AdminDashboard() {
       )}
 
       {/* Generate Invoice Modal */}
-      {showGenerateInvoiceModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-slate-800 text-sm uppercase tracking-wider">Generate Invoice</h3>
-              <button onClick={() => setShowGenerateInvoiceModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                <X className="w-4.5 h-4.5" />
-              </button>
-            </div>
+      {showGenerateInvoiceModal && (() => {
+        const selectedUnit = units.find((u) => String(u.id) === String(newBill.unit_id));
+        const resName = selectedUnit ? (selectedUnit.resident_name || selectedUnit.owner_name || selectedUnit.tenant_name) : null;
+        const resEmail = selectedUnit ? (selectedUnit.resident_email || selectedUnit.owner_email || selectedUnit.tenant_email) : null;
+        const resRole = selectedUnit ? (selectedUnit.resident_role || (selectedUnit.tenant_name ? 'Tenant' : selectedUnit.owner_name ? 'Homeowner' : 'Resident')) : null;
 
-            <form onSubmit={handleCreateBill} className="space-y-4 font-sans text-xs">
-              <div>
-                <label className="text-xs font-bold text-slate-500 block mb-1.5">Select Unit</label>
-                <div className="relative">
-                  <select
-                    required
-                    className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 rounded-lg text-xs font-medium appearance-none cursor-pointer"
-                    value={newBill.unit_id}
-                    onChange={(e) => setNewBill({ ...newBill, unit_id: e.target.value })}
-                  >
-                    <option value="">-- Select Unit --</option>
-                    {units.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.block_name} – Floor {u.floor_number} – Unit {u.unit_number}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
-                </div>
+        const filteredUnits = units.filter((u) => {
+          if (!unitSearchTerm.trim()) return true;
+          const term = unitSearchTerm.toLowerCase().trim();
+          const unitNum = String(u.unit_number || '').toLowerCase();
+          const blockName = String(u.block_name || '').toLowerCase();
+          const name = String(u.resident_name || u.owner_name || u.tenant_name || '').toLowerCase();
+          const email = String(u.resident_email || u.owner_email || u.tenant_email || '').toLowerCase();
+          return unitNum.includes(term) || blockName.includes(term) || name.includes(term) || email.includes(term);
+        });
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                <h3 className="font-extrabold text-slate-800 text-sm uppercase tracking-wider">Generate Invoice</h3>
+                <button 
+                  onClick={() => {
+                    setShowGenerateInvoiceModal(false);
+                    setUnitDropdownOpen(false);
+                    setUnitSearchTerm('');
+                  }} 
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-4.5 h-4.5" />
+                </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <form onSubmit={handleCreateBill} className="space-y-4 font-sans text-xs">
+                {/* Searchable Select Unit Dropdown */}
                 <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-1.5">Amount ($)</label>
+                  <label className="text-xs font-bold text-slate-500 block mb-1.5">Select Unit (Searchable)</label>
+                  <div className="relative">
+                    <div
+                      onClick={() => setUnitDropdownOpen(!unitDropdownOpen)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus-within:border-blue-600 focus-within:bg-white focus-within:ring-1 focus-within:ring-blue-600 outline-none text-slate-800 rounded-lg text-xs font-medium cursor-pointer flex justify-between items-center transition"
+                    >
+                      <span className={selectedUnit ? 'text-slate-800 font-semibold' : 'text-slate-400'}>
+                        {selectedUnit
+                          ? `${selectedUnit.block_name} – Floor ${selectedUnit.floor_number} – Unit ${selectedUnit.unit_number}`
+                          : '-- Select Unit --'}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${unitDropdownOpen ? 'rotate-180' : ''}`} />
+                    </div>
+
+                    {unitDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 max-h-60 overflow-hidden flex flex-col animate-in fade-in duration-150">
+                        {/* Search Input */}
+                        <div className="p-2 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
+                          <Search className="w-3.5 h-3.5 text-slate-400 ml-1 shrink-0" />
+                          <input
+                            type="text"
+                            placeholder="Search by Unit, Name, or Email..."
+                            value={unitSearchTerm}
+                            onChange={(e) => setUnitSearchTerm(e.target.value)}
+                            className="w-full bg-transparent text-xs text-slate-800 outline-none placeholder-slate-400"
+                            autoFocus
+                          />
+                          {unitSearchTerm && (
+                            <button
+                              type="button"
+                              onClick={() => setUnitSearchTerm('')}
+                              className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Options List */}
+                        <div className="overflow-y-auto max-h-48 divide-y divide-slate-100">
+                          {filteredUnits.length > 0 ? (
+                            filteredUnits.map((u) => {
+                              const uResName = u.resident_name || u.owner_name || u.tenant_name;
+                              const uResEmail = u.resident_email || u.owner_email || u.tenant_email;
+                              const isSelected = String(newBill.unit_id) === String(u.id);
+
+                              return (
+                                <div
+                                  key={u.id}
+                                  onClick={() => {
+                                    setNewBill({ ...newBill, unit_id: u.id });
+                                    setUnitDropdownOpen(false);
+                                  }}
+                                  className={`p-2.5 cursor-pointer hover:bg-blue-50/80 transition flex flex-col gap-0.5 ${
+                                    isSelected ? 'bg-blue-50 border-l-4 border-blue-600' : ''
+                                  }`}
+                                >
+                                  <div className="flex justify-between items-center">
+                                    <span className="font-bold text-slate-800 text-xs">
+                                      {u.block_name} • Floor {u.floor_number} • Unit {u.unit_number}
+                                    </span>
+                                    {u.status && (
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase ${
+                                        u.status === 'occupied' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                                      }`}>
+                                        {u.status}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {uResName ? (
+                                    <div className="text-[11px] text-slate-500 flex items-center justify-between">
+                                      <span>👤 {uResName} ({uResEmail || 'No Email'})</span>
+                                      <span className="text-slate-400 text-[10px] font-medium">{u.resident_role || 'Resident'}</span>
+                                    </div>
+                                  ) : (
+                                    <div className="text-[11px] text-slate-400 italic">No resident assigned</div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="p-4 text-center text-slate-400 text-xs">No units match your search</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Display Selected Resident Info Box */}
+                {selectedUnit && (
+                  <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-3 space-y-2">
+                    <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Occupying Resident Details</div>
+                    {resName ? (
+                      <div className="space-y-1 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-slate-600">Resident Name:</span>
+                          <span className="font-bold text-slate-900">{resName}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-slate-600">Email Address:</span>
+                          <span className="font-medium text-blue-600">{resEmail || 'N/A'}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-slate-600">Occupancy Role:</span>
+                          <span className="font-bold bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-md">
+                            {resRole}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-amber-600 font-medium flex items-center gap-1.5">
+                        <span>⚠️ No active resident linked to this unit. Automated email notification will not be sent.</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 block mb-1.5">Amount ($)</label>
+                    <input
+                      type="number" step="0.01" required placeholder="0.00"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 placeholder-slate-400/90 rounded-lg text-xs font-medium"
+                      value={newBill.amount}
+                      onChange={(e) => setNewBill({ ...newBill, amount: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 block mb-1.5">Due Date</label>
+                    <input
+                      type="date" required
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 rounded-lg text-xs font-medium"
+                      value={newBill.due_date}
+                      onChange={(e) => setNewBill({ ...newBill, due_date: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1.5">Description</label>
                   <input
-                    type="number" step="0.01" required placeholder="0.00"
+                    type="text" required placeholder="e.g. Monthly Maintenance Fee"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 placeholder-slate-400/90 rounded-lg text-xs font-medium"
-                    value={newBill.amount}
-                    onChange={(e) => setNewBill({ ...newBill, amount: e.target.value })}
+                    value={newBill.description}
+                    onChange={(e) => setNewBill({ ...newBill, description: e.target.value })}
                   />
                 </div>
+
                 <div>
-                  <label className="text-xs font-bold text-slate-500 block mb-1.5">Due Date</label>
-                  <input
-                    type="date" required
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 rounded-lg text-xs font-medium"
-                    value={newBill.due_date}
-                    onChange={(e) => setNewBill({ ...newBill, due_date: e.target.value })}
-                  />
+                  <label className="text-xs font-bold text-slate-500 block mb-1.5">Payment Method</label>
+                  <div className="relative">
+                    <select
+                      className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 rounded-lg text-xs font-medium appearance-none cursor-pointer"
+                      value={newBill.payment_method}
+                      onChange={(e) => setNewBill({ ...newBill, payment_method: e.target.value })}
+                    >
+                      <option>Bank Transfer</option>
+                      <option>Online Payment</option>
+                      <option>Card</option>
+                      <option>Cash</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-500 block mb-1.5">Description</label>
-                <input
-                  type="text" required placeholder="e.g. Monthly Maintenance Fee"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 placeholder-slate-400/90 rounded-lg text-xs font-medium"
-                  value={newBill.description}
-                  onChange={(e) => setNewBill({ ...newBill, description: e.target.value })}
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-500 block mb-1.5">Payment Method</label>
-                <div className="relative">
-                  <select
-                    className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white focus:ring-1 focus:ring-blue-600 outline-none text-slate-800 rounded-lg text-xs font-medium appearance-none cursor-pointer"
-                    value={newBill.payment_method}
-                    onChange={(e) => setNewBill({ ...newBill, payment_method: e.target.value })}
+                <div className="pt-3 flex justify-end gap-2 border-t border-slate-100">
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setShowGenerateInvoiceModal(false);
+                      setUnitDropdownOpen(false);
+                      setUnitSearchTerm('');
+                    }} 
+                    className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-bold rounded-lg cursor-pointer transition"
                   >
-                    <option>Bank Transfer</option>
-                    <option>Online Payment</option>
-                    <option>Card</option>
-                    <option>Cash</option>
-                  </select>
-                  <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
+                    Cancel
+                  </button>
+                  <button type="submit" className="px-5 py-2 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-sm">Generate Invoice</button>
                 </div>
-              </div>
-
-              <div className="pt-3 flex justify-end gap-2 border-t border-slate-100">
-                <button type="button" onClick={() => setShowGenerateInvoiceModal(false)} className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-bold rounded-lg cursor-pointer transition">Cancel</button>
-                <button type="submit" className="px-5 py-2 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-sm">Generate Invoice</button>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Record Payment Modal */}
       {showRecordPaymentModal && (
@@ -5781,7 +6549,7 @@ export default function AdminDashboard() {
                       <option value="">-- Select Invoice --</option>
                       {bills.filter(b => b.status === 'unpaid').map((b) => (
                         <option key={b.id} value={b.id}>
-                          #{b.invoice_id || b.id} – {b.block_name}-{b.unit_number} – ${b.amount}
+                          #{b.invoice_id || b.id} – {b.block_name}-{b.unit_number} – LKR {b.amount}
                         </option>
                       ))}
                     </select>
@@ -5826,6 +6594,226 @@ export default function AdminDashboard() {
               <div className="pt-3 flex justify-end gap-2 border-t border-slate-100">
                 <button type="button" onClick={() => { setShowRecordPaymentModal(false); setRecordPaymentForm({ billId: '', payment_method: 'Bank Transfer', notes: '' }); }} className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-bold rounded-lg cursor-pointer transition">Cancel</button>
                 <button type="submit" className="px-5 py-2 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-sm">Record Payment</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* View User Modal */}
+      {selectedUserView && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="font-extrabold text-slate-800 text-sm uppercase tracking-wider">User Account Details</h3>
+              <button onClick={() => setSelectedUserView(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-4.5 h-4.5" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-150">
+              <div className="w-12 h-12 rounded-full bg-blue-600 text-white font-extrabold text-lg flex items-center justify-center uppercase shrink-0">
+                {selectedUserView.full_name ? selectedUserView.full_name.charAt(0) : selectedUserView.email.charAt(0)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-bold text-slate-900 text-sm truncate">{selectedUserView.full_name || 'N/A'}</h4>
+                <p className="text-xs text-slate-500 font-medium truncate">{selectedUserView.email}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[9px] font-extrabold uppercase bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                    {selectedUserView.role}
+                  </span>
+                  <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded ${
+                    selectedUserView.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {selectedUserView.status}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Building / Block</span>
+                <span className="font-bold text-slate-800 mt-0.5 block">{selectedUserView.building_name || '—'}</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Unit Number</span>
+                <span className="font-bold text-slate-800 mt-0.5 block">{selectedUserView.unit_number || '—'}</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Phone Number</span>
+                <span className="font-bold text-slate-800 mt-0.5 block">{selectedUserView.phone_number || '—'}</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Vehicle Number</span>
+                <span className="font-bold text-slate-800 mt-0.5 block">{selectedUserView.vehicle_number || '—'}</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">NIC / Passport</span>
+                <span className="font-bold text-slate-800 mt-0.5 block">{selectedUserView.nic_or_passport || '—'}</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Registration Date</span>
+                <span className="font-bold text-slate-800 mt-0.5 block">
+                  {selectedUserView.created_at ? new Date(selectedUserView.created_at).toLocaleDateString() : '—'}
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-3 flex justify-end border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setSelectedUserView(null)}
+                className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg cursor-pointer transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit User Modal */}
+      {selectedUserEdit && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="font-extrabold text-slate-800 text-sm uppercase tracking-wider">Edit User Details</h3>
+              <button onClick={() => setSelectedUserEdit(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-4.5 h-4.5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAdminUpdateUser} className="space-y-4 font-sans text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1">Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white outline-none rounded-lg text-xs font-medium"
+                    value={editUserForm.full_name}
+                    onChange={(e) => setEditUserForm({ ...editUserForm, full_name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white outline-none rounded-lg text-xs font-medium"
+                    value={editUserForm.email}
+                    onChange={(e) => setEditUserForm({ ...editUserForm, email: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1">User Role</label>
+                  <div className="relative">
+                    <select
+                      className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white outline-none rounded-lg text-xs font-medium appearance-none cursor-pointer"
+                      value={editUserForm.role}
+                      onChange={(e) => setEditUserForm({ ...editUserForm, role: e.target.value })}
+                    >
+                      <option value="homeowner">Homeowner</option>
+                      <option value="tenant">Tenant</option>
+                      <option value="admin">Admin</option>
+                      <option value="staff">Staff</option>
+                      <option value="maintenance">Maintenance</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1">Account Status</label>
+                  <div className="relative">
+                    <select
+                      className="w-full pl-3 pr-10 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white outline-none rounded-lg text-xs font-medium appearance-none cursor-pointer"
+                      value={editUserForm.status}
+                      onChange={(e) => setEditUserForm({ ...editUserForm, status: e.target.value })}
+                    >
+                      <option value="approved">Approved / Active</option>
+                      <option value="pending">Pending</option>
+                      <option value="suspended">Suspended</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1">Building / Block Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Block A"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white outline-none rounded-lg text-xs font-medium"
+                    value={editUserForm.building_name}
+                    onChange={(e) => setEditUserForm({ ...editUserForm, building_name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1">Unit Number</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 101"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white outline-none rounded-lg text-xs font-medium"
+                    value={editUserForm.unit_number}
+                    onChange={(e) => setEditUserForm({ ...editUserForm, unit_number: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1">Phone Number</label>
+                  <input
+                    type="text"
+                    placeholder="+1 234 567 890"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white outline-none rounded-lg text-xs font-medium"
+                    value={editUserForm.phone_number}
+                    onChange={(e) => setEditUserForm({ ...editUserForm, phone_number: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1">Vehicle Number</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. WP CAB-1234"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white outline-none rounded-lg text-xs font-medium"
+                    value={editUserForm.vehicle_number}
+                    onChange={(e) => setEditUserForm({ ...editUserForm, vehicle_number: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1">NIC / Passport</label>
+                  <input
+                    type="text"
+                    placeholder="NIC or Passport No."
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:border-blue-600 focus:bg-white outline-none rounded-lg text-xs font-medium"
+                    value={editUserForm.nic_or_passport}
+                    onChange={(e) => setEditUserForm({ ...editUserForm, nic_or_passport: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 flex justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSelectedUserEdit(null)}
+                  className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-bold rounded-lg cursor-pointer transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-[#133fbd] hover:bg-[#0f3299] text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-sm"
+                >
+                  Save Changes
+                </button>
               </div>
             </form>
           </div>

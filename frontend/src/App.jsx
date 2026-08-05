@@ -4,7 +4,9 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
+import Credentials from './pages/Credentials';
 import NotFound from './pages/NotFound';
+import AIChatbot from './components/AIChatbot';
 import './App.css';
 
 // Route Guard to protect private pages
@@ -68,6 +70,9 @@ function App() {
             } 
           />
 
+          {/* Access Credentials & Test Accounts Route */}
+          <Route path="/credentials" element={<Credentials />} />
+
           {/* Protected Dashboard Route */}
           <Route 
             path="/dashboard" 
@@ -84,6 +89,9 @@ function App() {
           {/* Fallback Not Found Route */}
           <Route path="*" element={<NotFound />} />
         </Routes>
+
+        {/* Smart AI Assistant Chatbot (Always Fixed at Bottom-Left Corner) */}
+        <AIChatbot />
       </Router>
     </AuthProvider>
   );

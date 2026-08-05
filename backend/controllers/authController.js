@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
+const { sendRegistrationEmail, sendAdminApprovalEmail, sendOwnerApprovalEmail } = require('../utils/emailService');
 require('dotenv').config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_12345_apartment_system';
@@ -82,6 +83,11 @@ const register = async (req, res) => {
       ]
     );
 
+    // Send registration confirmation email (fire-and-forget)
+    sendRegistrationEmail({ email, fullName, role }).catch((err) =>
+      console.error('[Email] Registration email failed:', err.message)
+    );
+
     return res.status(201).json({
       message: 'Registration successful. Your account is pending approval.',
       userId: result.insertId
@@ -128,7 +134,7 @@ const login = async (req, res) => {
 
     // 4. Generate JWT Token
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
+      { id: user.id, email: user.email, role: user.role, sub_role: user.sub_role || null, full_name: user.full_name || null },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -138,7 +144,9 @@ const login = async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        role: user.role
+        role: user.role,
+        sub_role: user.sub_role || null,
+        full_name: user.full_name || null
       }
     });
   } catch (error) {
@@ -220,6 +228,12 @@ const approveUser = async (req, res) => {
       if (targetUser.role === 'homeowner') {
         const finalStatus = action === 'approve' ? 'approved' : 'rejected';
         await pool.query('UPDATE users SET status = ? WHERE id = ?', [finalStatus, userId]);
+
+        // Notify homeowner of admin decision (fire-and-forget)
+        sendAdminApprovalEmail(targetUser, action).catch((err) =>
+          console.error('[Email] Admin approval email failed:', err.message)
+        );
+
         return res.status(200).json({ message: `Homeowner has been ${finalStatus}.` });
       }
 
@@ -230,6 +244,12 @@ const approveUser = async (req, res) => {
         }
         const finalStatus = action === 'approve' ? 'approved' : 'rejected';
         await pool.query('UPDATE users SET status = ? WHERE id = ?', [finalStatus, userId]);
+
+        // Notify tenant of admin decision (fire-and-forget)
+        sendAdminApprovalEmail(targetUser, action).catch((err) =>
+          console.error('[Email] Admin approval email failed:', err.message)
+        );
+
         return res.status(200).json({ message: `Tenant has been ${finalStatus} by Admin.` });
       }
 
@@ -246,9 +266,21 @@ const approveUser = async (req, res) => {
 
       if (action === 'approve') {
         await pool.query('UPDATE users SET owner_approved = 1 WHERE id = ?', [userId]);
+
+        // Notify tenant that homeowner approved (fire-and-forget)
+        sendOwnerApprovalEmail(targetUser, 'approve').catch((err) =>
+          console.error('[Email] Homeowner approval email failed:', err.message)
+        );
+
         return res.status(200).json({ message: 'Tenant approved by Homeowner. Now pending Admin approval.' });
       } else {
         await pool.query('UPDATE users SET status = "rejected" WHERE id = ?', [userId]);
+
+        // Notify tenant that homeowner rejected (fire-and-forget)
+        sendOwnerApprovalEmail(targetUser, 'reject').catch((err) =>
+          console.error('[Email] Homeowner rejection email failed:', err.message)
+        );
+
         return res.status(200).json({ message: 'Tenant request rejected by Homeowner.' });
       }
     } else {
@@ -271,6 +303,29 @@ const getApprovedHomeowners = async (req, res) => {
     return res.status(200).json(homeowners);
   } catch (error) {
     console.error('Get homeowners error:', error);
+    return res.status(500).json({ message: 'Internal server error.' });
+  }
+};
+
+// @desc    Get available units grouped by building for public registration dropdown
+// @route   GET /api/auth/available-units
+// @access  Public
+const getPublicAvailableUnits = async (req, res) => {
+  try {
+    const [units] = await pool.query(
+      `SELECT id, block_name, floor_number, unit_number, type, status 
+       FROM units 
+       ORDER BY block_name ASC, floor_number ASC, unit_number ASC`
+    );
+
+    const blocks = Array.from(new Set(units.map(u => u.block_name))).filter(Boolean);
+
+    return res.status(200).json({
+      blocks: blocks.length > 0 ? blocks : ['Block A', 'Block B', 'Block C', 'Block D'],
+      units
+    });
+  } catch (error) {
+    console.error('Get available units error:', error);
     return res.status(500).json({ message: 'Internal server error.' });
   }
 };
@@ -750,7 +805,7 @@ const getAllUsers = async (req, res) => {
 
     // Fetch users
     const selectQuery = `
-      SELECT id, email, role, status, created_at, full_name, nic_or_passport, phone_number, building_name, unit_number, vehicle_number 
+      SELECT id, email, role, sub_role, status, created_at, full_name, nic_or_passport, phone_number, building_name, unit_number, vehicle_number 
       FROM users 
       ${whereClause} 
       ORDER BY created_at DESC 
@@ -794,7 +849,7 @@ const adminCreateUser = async (req, res) => {
     return res.status(403).json({ message: 'Access denied. Admin only.' });
   }
 
-  const { email, password, role, status, full_name, phone_number, building_name, unit_number, vehicle_number } = req.body;
+  const { email, password, role, status, full_name, phone_number, building_name, unit_number, vehicle_number, sub_role } = req.body;
 
   try {
     if (!email || !password || !role) {
@@ -811,9 +866,9 @@ const adminCreateUser = async (req, res) => {
     const userStatus = status || 'approved'; // Default to active/approved for admin creation
 
     await pool.query(
-      `INSERT INTO users (email, password_hash, role, status, full_name, phone_number, building_name, unit_number, vehicle_number) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [email, passwordHash, role, userStatus, full_name || null, phone_number || null, building_name || null, unit_number || null, vehicle_number || null]
+      `INSERT INTO users (email, password_hash, role, sub_role, status, full_name, phone_number, building_name, unit_number, vehicle_number) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [email, passwordHash, role, (role === 'staff' ? (sub_role || null) : null), userStatus, full_name || null, phone_number || null, building_name || null, unit_number || null, vehicle_number || null]
     );
 
     return res.status(201).json({ message: 'User created successfully.' });
@@ -878,6 +933,123 @@ const deleteUser = async (req, res) => {
   }
 };
 
+// @desc    Admin edit/update user details
+// @route   PUT /api/auth/users/:id
+// @access  Private (Admin / Staff)
+const adminUpdateUser = async (req, res) => {
+  const { role: requesterRole } = req.user;
+  if (requesterRole !== 'admin' && requesterRole !== 'staff') {
+    return res.status(403).json({ message: 'Access denied.' });
+  }
+
+  const { id } = req.params;
+  const { 
+    full_name, 
+    email, 
+    role, 
+    status, 
+    building_name, 
+    unit_number, 
+    phone_number, 
+    vehicle_number, 
+    nic_or_passport,
+    sub_role
+  } = req.body;
+
+  try {
+    const [target] = await pool.query('SELECT id FROM users WHERE id = ?', [id]);
+    if (target.length === 0) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    if (email) {
+      const [existing] = await pool.query('SELECT id FROM users WHERE email = ? AND id != ?', [email, id]);
+      if (existing.length > 0) {
+        return res.status(400).json({ message: 'Email address is already in use.' });
+      }
+    }
+
+    await pool.query(
+      `UPDATE users SET 
+        full_name = ?, 
+        email = COALESCE(?, email), 
+        role = COALESCE(?, role), 
+        sub_role = ?,
+        status = COALESCE(?, status), 
+        building_name = ?, 
+        unit_number = ?, 
+        phone_number = ?, 
+        vehicle_number = ?, 
+        nic_or_passport = ? 
+       WHERE id = ?`,
+      [
+        full_name !== undefined ? full_name : null,
+        email || null,
+        role || null,
+        sub_role !== undefined ? (sub_role || null) : null,
+        status || null,
+        building_name !== undefined ? building_name : null,
+        unit_number !== undefined ? unit_number : null,
+        phone_number !== undefined ? phone_number : null,
+        vehicle_number !== undefined ? vehicle_number : null,
+        nic_or_passport !== undefined ? nic_or_passport : null,
+        id
+      ]
+    );
+
+    return res.status(200).json({ message: 'User details updated successfully.' });
+  } catch (error) {
+    console.error('Admin update user error:', error);
+    return res.status(500).json({ message: 'Internal server error.' });
+  }
+};
+
+// @desc    Retrieve list of seed accounts with test credentials
+// @route   GET /api/auth/credentials
+// @access  Public
+const getTestCredentials = async (req, res) => {
+  try {
+    const [users] = await pool.query(
+      `SELECT id, email, role, status, full_name, building_name, unit_number, phone_number, nic_or_passport, vehicle_number, relationship_to_owner
+       FROM users
+       ORDER BY FIELD(role, 'admin', 'staff', 'maintenance', 'homeowner', 'tenant'), email ASC`
+    );
+
+    // Map default passwords based on role/email
+    const defaultPasswords = {
+      'admin@apartment.com': 'AdminPass123!',
+      'staff@apartment.com': 'StaffPass123!',
+      'maintenance@apartment.com': 'MaintenancePass123!',
+      'homeowner@apartment.com': 'OwnerPass123!'
+    };
+
+    const formattedUsers = users.map(u => {
+      let pass = defaultPasswords[u.email];
+      if (!pass) {
+        if (u.role === 'admin') pass = 'AdminPass123!';
+        else if (u.role === 'staff') pass = 'StaffPass123!';
+        else if (u.role === 'maintenance') pass = 'MaintenancePass123!';
+        else if (u.role === 'homeowner') pass = 'OwnerPass123!';
+        else if (u.role === 'tenant') pass = 'TenantPass123!';
+        else pass = 'Pass123!';
+      }
+      return {
+        ...u,
+        default_password: pass
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: formattedUsers.length,
+      credentials: formattedUsers
+    });
+  } catch (error) {
+    console.error('Get test credentials error:', error);
+    return res.status(500).json({ message: 'Failed to retrieve test credentials.' });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -891,5 +1063,9 @@ module.exports = {
   getAllUsers,
   adminCreateUser,
   updateUserStatus,
-  deleteUser
+  deleteUser,
+  adminUpdateUser,
+  getPublicAvailableUnits,
+  getTestCredentials
 };
+
